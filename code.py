@@ -1,46 +1,103 @@
 import csv
-import os
+import os # To check if files exist
+import datetime # Used for the Timestamp
 
-# Load product data from CSV file
-def load_data(filename="database.csv"):
+# --- CSV FILE OPERATIONS ---
+
+# 📂 Load Menu & Stock from CSV
+def load_menu_stock():
+    """Load menu and stock from menu_stock.csv."""
     menu = {}
     stock = {}
-    if os.path.exists(filename):
-        with open(filename, mode="r", newline='', encoding="utf-8") as file:
+    filename = 'menu_stock.csv'
+    if not os.path.exists(filename):
+        print(f"⚠️ {filename} not found. Starting with empty menu/stock.")
+        return menu, stock
+
+    try:
+        with open(filename, mode='r', newline='') as file:
+            # Use DictReader for easy mapping to dictionaries
             reader = csv.DictReader(file)
             for row in reader:
-                name = row["Product"]
-                price = float(row["Price"])
-                qty = int(row["Stock"])
-                menu[name] = price
-                stock[name] = qty
-        print(f"\n✅ Loaded existing data from {filename}.")
-    else:
-        print(f"\n⚠️ No existing data found. Starting a new database.")
+                item = row['Item']
+                try:
+                    # Convert to float for price and int for stock
+                    menu[item] = float(row['Price'])
+                    stock[item] = int(row['Stock'])
+                except (ValueError, KeyError) as e:
+                    print(f"Error loading data for {item}: {e}. Skipping row.")
+        print(f"✅ Loaded {len(menu)} items from {filename}")
+    except Exception as e:
+        print(f"An error occurred while loading {filename}: {e}")
     return menu, stock
 
+# 📝 Save Menu & Stock to CSV
+def save_menu_stock(menu, stock):
+    """Save current menu and stock to menu_stock.csv."""
+    filename = 'menu_stock.csv'
+    fieldnames = ['Item', 'Price', 'Stock']
+    data_to_write = [{'Item': item, 'Price': price, 'Stock': stock.get(item, 0)} 
+                     for item, price in menu.items()]
+    
+    try:
+        with open(filename, mode='w', newline='') as file:
+            writer = csv.DictWriter(file, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(data_to_write)
+        print(f"✅ Menu and Stock saved to {filename}")
+    except Exception as e:
+        print(f"An error occurred while saving {filename}: {e}")
 
-# Save product data to CSV file
-def save_data(menu, stock, filename="database.csv"):
-    with open(filename, mode="w", newline='', encoding="utf-8") as file:
-        fieldnames = ["Product", "Price", "Stock"]
-        writer = csv.DictWriter(file, fieldnames=fieldnames)
-        writer.writeheader()
-        for item, price in menu.items():
-            writer.writerow({"Product": item, "Price": price, "Stock": stock.get(item, 0)})
-    print(f"\n💾 Data saved to {filename}.")
 
+# 📚 Log Transaction to CSV (Bookkeeping) - MODIFIED
+def log_transaction(order, menu, total):
+    """Log a completed transaction to data.csv with simplified fields."""
+    filename = 'data.csv'
+    # 'a' mode appends to the file.
+    file_exists = os.path.exists(filename)
+    
+    # Fieldnames for the simplified transaction log
+    fieldnames = ['Timestamp', 'Item', 'Quantity'] # REMOVED Price_per_Unit, Subtotal, Order_Total
+    
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-#user input a product, prices, and stock
+    data_to_write = []
+    for item, qty in order.items():
+        # Create a dictionary for each item in the order
+        data_to_write.append({
+            'Timestamp': timestamp,
+            'Item': item,
+            'Quantity': qty,
+        })
+    
+    try:
+        with open(filename, mode='a', newline='') as file:
+            writer = csv.DictWriter(file, fieldnames=fieldnames)
+            if not file_exists or os.path.getsize(filename) == 0:
+                writer.writeheader() # Write header only if file is new/empty
+            writer.writerows(data_to_write)
+        print(f"✅ Transaction logged to {filename} (Simplified)")
+    except Exception as e:
+        print(f"An error occurred while logging transaction to {filename}: {e}")
+
+# 💰 Calculate Historical Income - REMOVED FUNCTION
+# The logic to calculate income is now more complex as prices are not logged.
+# It requires reading data.csv and cross-referencing prices from menu_stock.csv or a separate historical price log.
+# For simplicity, we will just use the session total sales in the main function.
+
+# --- ORIGINAL POS FUNCTIONS (Minor changes for CSV integration) ---
+
 def input_menu():
+    """Initial product/stock input - now only runs if load_menu_stock returns empty."""
+    # This is slightly modified to be called by main only if no data is loaded.
     menu = {}
     stock = {}
     print("Enter available Strains or Products. \nType 'done' when finished.")
+    # ... (The rest of the input_menu logic remains the same for data entry)
     while True:
-        name = input("\tEnter STRAIN NAME or PRODUCTS (or type 'done' if finis): ").strip()
+        name = input("\tEnter STRAIN NAME or PRODUCTS (or type 'done' if finished): ").strip()
         if name.lower() == 'done':
             break
-
         if not name:
             print("Product name cannot be empty. Try again.")
             continue
@@ -65,15 +122,48 @@ def input_menu():
     return menu, stock
 
 
-# Update menu and stock
+# 🟡 Monitor Low or Out of Stock Items
+def monitor_stock(stock):
+    low_stock = {item: qty for item, qty in stock.items() if 0 < qty <= 3}
+    out_of_stock = [item for item, qty in stock.items() if qty == 0]
+    
+    if low_stock:
+        print("🟡 LOW STOCK Items (Qty <= 3):")
+        for item, qty in low_stock.items():
+            print(f"    • {item}: {qty}")
+            
+    if out_of_stock:
+        print("🔴 OUT OF STOCK Items:")
+        for item in out_of_stock:
+            print(f"    • {item}")
+
+    if not low_stock and not out_of_stock:
+        print("\t✅ All products sufficiently stocked.")
+    print("---------------------------")
+
+
+# 🔵 Display All Stock Levels
+def display_stock_count(stock):
+    print("\n📦 CURRENT STOCK LEVELS:")
+    if not stock:
+        print("⚠️ No products in inventory.")
+        return
+    for item, qty in stock.items():
+        print(f"    {item:<15}: {qty} in stock")
+    print("---------------------------")
+
+
+# Update Products & Stock
 def update_menu(menu, stock):
-    """Allows the user to update prices, stock, or add/remove products."""
     print("\n--- UPDATE PRODUCTS & STOCK ---")
     while True:
         print("\nCurrent Products:")
         for item, price in menu.items():
             qty = stock.get(item, 0)
-            print(f"  {item:<15} ₱{price:<8.2f} ({qty} in stock)")
+            print(f"  {item:<15} ₱{price:<8.2f} ({qty} in stock)")
+
+        monitor_stock(stock)
+        display_stock_count(stock)
 
         print("\nOptions:")
         print("1. Update Price")
@@ -109,6 +199,7 @@ def update_menu(menu, stock):
                         continue
                     stock[item] += add_qty
                     print(f"✅ Added {add_qty} units to {item}. New stock: {stock[item]}")
+                    display_stock_count(stock)
                 except ValueError:
                     print("Invalid quantity input.")
             else:
@@ -128,6 +219,7 @@ def update_menu(menu, stock):
                 menu[new_item] = new_price
                 stock[new_item] = new_stock
                 print(f"✅ Added new product: {new_item} (₱{new_price:.2f}, {new_stock} in stock)")
+                display_stock_count(stock)
             except ValueError:
                 print("Invalid input. Try again.")
 
@@ -139,23 +231,21 @@ def update_menu(menu, stock):
                     del menu[item]
                     del stock[item]
                     print(f"✅ {item} removed from the menu.")
+                    display_stock_count(stock)
                 else:
                     print("Removal canceled.")
             else:
                 print("Product / Strain not found.")
 
         elif choice == '5':
+            save_menu_stock(menu, stock) # Save on exit from update menu
             print("Returning to main menu...")
             break
 
         else:
             print("Invalid choice. Please choose 1-5.")
 
-        # ✅ Automatically save changes after each modification
-        save_data(menu, stock)
 
-
-#customer order
 def take_order(menu, stock):
     order = {}
     print("\nTAKE CUSTOMER ORDER. TYPE 'DONE' WHEN FINISHED")
@@ -165,8 +255,11 @@ def take_order(menu, stock):
     for item, price in menu.items():
         qty = stock.get(item, 0)
         stock_status = f"({qty} in stock)" if qty > 0 else "(OUT OF STOCK)"
-        print(f"  \t{item:<15} ₱{price:.2f} {stock_status}")
+        print(f"  \t{item:<15} ₱{price:.2f} {stock_status}")
     print("\t ----------------------------------")
+
+    monitor_stock(stock)
+    # display_stock_count(stock) # Already called by monitor_stock for visual clarity
 
     while True:
         item = input("\tEnter product/strain name to order (or 'done'): ").strip()
@@ -199,10 +292,9 @@ def take_order(menu, stock):
     return order
 
 
-#receipt
 def print_receipt(order, menu):
     print("\n" + "="*30)
-    print("       ORDER RECEIPT")
+    print("         ORDER RECEIPT")
     print("="*30)
     total = 0
     for item, qty in order.items():
@@ -216,7 +308,7 @@ def print_receipt(order, menu):
     return total
 
 
-# Function to handle payment
+# 💳 Payment Section (No stock monitoring here)
 def process_payment(total):
     print("\n--- PAYMENT METHOD ---")
     while True:
@@ -229,8 +321,12 @@ def process_payment(total):
                         print("Insufficient amount. Please enter more or pay the exact amount.")
                         continue
                     change = paid_amount - total
+                    print("\n" + "="*30)
                     print(f"\n✅ Transaction Successful (Cash)")
                     print(f"💰 CHANGE: ₱{change:.2f}")
+                    print("\n" + "="*30)
+                    print("Thank you for ordering with us!")
+                    print("="*30)
                     return total
                 except ValueError:
                     print("Invalid cash amount. Please enter a number.")
@@ -245,31 +341,43 @@ def process_payment(total):
             print("Invalid selection. Please choose '1' or '2'.")
 
 
-# Deduct stock
 def deduct_stock(stock, order):
     for item, qty in order.items():
         if item in stock:
             stock[item] -= qty
+    print("\n✅ Stock Updated After Sale.")
+    display_stock_count(stock)
+    monitor_stock(stock)
 
-
+# --- MAIN LOGIC WITH CSV INTEGRATION (Modified for Income Logic Change) ---
 def main():
     print("Welcome to the LORENCE'S BETTA FISH")
 
-    # ✅ Load existing data from CSV
-    menu, stock = load_data()
+    # 1. Load data from CSV
+    menu, stock = load_menu_stock()
 
-    # If no data, allow user to input new products
+    # 2. If no data loaded, prompt for initial input
     if not menu:
+        print("\n--- INITIAL SETUP ---")
         menu, stock = input_menu()
-        save_data(menu, stock)
+        if not menu:
+            print("No menu items entered. Exiting.")
+            return
+        save_menu_stock(menu, stock) # Save initial setup
 
-    print("\n\t\t---- Current Strains and Products ----")
+    print("\n\t\t---- Strains and Products successfully loaded! ----")
     print("\t\t\tProduct | Price | Stock")
     for item, price in menu.items():
         qty = stock.get(item, 0)
         print(f"\t\t\t{item:<10}: ₱{price:.2f} ({qty})")
 
+    monitor_stock(stock)
+    display_stock_count(stock)
+
     session_total_sales = 0
+    # Removed historical income calculation due to simplified data.csv structure
+    print("💰 Historical income must be calculated externally using this log and price data.")
+
 
     while True:
         print("\nOptions:")
@@ -284,27 +392,35 @@ def main():
                 print("No items ordered.")
             else:
                 order_total = print_receipt(order, menu)
-                amount_paid = process_payment(order_total)
+                amount_paid = process_payment(order_total) 
+                
+                # --- CSV LOGGING AND STOCK UPDATE ---
+                log_transaction(order, menu, order_total) # 👈 Log to data.csv (Simplified)
+                deduct_stock(stock, order) # 👈 stock shown here after payment
+                save_menu_stock(menu, stock) # 👈 Save updated stock to menu_stock.csv
+                # -----------------------------------
+                
                 session_total_sales += amount_paid
-                deduct_stock(stock, order)
-                save_data(menu, stock)  # ✅ Save updated stock
-                print("\n" + "="*30)
-                print("Thank you for ordering with us!")
-                print("="*30)
 
         elif choice == '2':
-            update_menu(menu, stock)
+            update_menu(menu, stock) # Stock is saved inside update_menu when returning.
 
         elif choice == '3':
+            # 3. Final Save and Report
+            save_menu_stock(menu, stock) 
+            # final_historical_income = calculate_historical_income() # Removed
+
             print("\n" + "="*40)
-            print("        END OF SESSION REPORT")
+            print("         END OF SESSION REPORT")
             print("="*40)
-            print(f"Total Revenue from all orders: ₱{session_total_sales:.2f}")
+            print(f"Revenue this Session: ₱{session_total_sales:.2f}")
+            print("Historical Revenue not shown (log is simplified).")
             print("\n--- Remaining Inventory ---")
             for item, qty in stock.items():
-                print(f"  {item:<15}: {qty} units")
+                print(f"  {item:<15}: {qty} units")
+            monitor_stock(stock)
+            display_stock_count(stock)
             print("="*40)
-            save_data(menu, stock)
             print("Exiting POS. Goodbye!")
             break
 
